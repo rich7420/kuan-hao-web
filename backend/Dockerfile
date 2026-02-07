@@ -1,7 +1,7 @@
 # Base stage
 FROM rust:1.84-slim-bookworm as chef
 WORKDIR /app
-RUN cargo install cargo-chef
+RUN cargo install cargo-chef --locked
 
 # Planner stage
 FROM chef as planner
