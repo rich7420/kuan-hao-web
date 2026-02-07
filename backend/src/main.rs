@@ -34,10 +34,18 @@ async fn main() {
     dotenvy::dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    // Connect to PostgreSQL
+    // Bind to port first so Cloud Run's startup probe sees the port open (avoids "failed to start and listen on PORT=8080")
+    let port = env::var("PORT").unwrap_or_else(|_| "3001".to_string());
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect(&format!("Failed to bind to {}", addr));
+    info!("Listening on {}", addr);
+
+    // Connect to PostgreSQL (can be slow on first connection; port is already open for health checks)
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .acquire_timeout(Duration::from_secs(3))
+        .acquire_timeout(Duration::from_secs(15))
         .connect(&db_url)
         .await
         .expect("Failed to connect to Postgres.");
@@ -121,16 +129,7 @@ async fn main() {
         .nest("/api", api_routes)
         .layer(cors);
 
-    // Port configuration from environment variable (Cloud Run compatible)
-    let port = env::var("PORT").unwrap_or_else(|_| "3001".to_string());
-    let addr = format!("0.0.0.0:{}", port);
-    
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect(&format!("Failed to bind to {}", addr));
-    
     info!("Server running on {}", addr);
-    
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
