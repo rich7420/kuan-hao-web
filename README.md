@@ -89,14 +89,6 @@ Frontend will run on `http://localhost:3000`
 | POST | `/api/contact` | Submit contact form |
 | GET | `/api/dashboard` | Admin dashboard (requires `x-magic-key: open-sesame`) |
 
-### Hidden Features
-
-**Konami Code Dashboard**: On the homepage, type the Konami Code sequence:
-```
-↑ ↑ ↓ ↓ ← → ← → B A
-```
-This will reveal the admin dashboard showing visitor stats and recent messages.
-
 ## 🚢 Deployment
 
 ### Google Cloud Run
