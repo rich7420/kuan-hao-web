@@ -2,7 +2,7 @@ use axum::{
     extract::{Json, Request, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, error};
@@ -46,30 +46,41 @@ pub async fn health_handler() -> String {
 pub async fn contact_handler(
     State(state): State<AppState>,
     Json(payload): Json<ContactPayload>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Response {
     // Validate input
     if let Err(validation_errors) = payload.validate() {
         error!("Validation failed: {:?}", validation_errors);
-        return Err(StatusCode::BAD_REQUEST);
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "message": "Validation failed" }))).into_response();
     }
-    
+
     info!("Received contact form submission: {:?}", payload);
-    
+
     // Store message in Postgres
-    if let Err(e) = query("INSERT INTO messages (name, email, message) VALUES ($1, $2, $3)")
+    match query("INSERT INTO messages (name, email, message) VALUES ($1, $2, $3)")
         .bind(&payload.name)
         .bind(&payload.email)
         .bind(&payload.message)
         .execute(&state.db)
-        .await {
-        error!("Failed to save message: {}", e);
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "success": true,
+            "message": "Message received successfully"
+        }))).into_response(),
+        Err(e) => {
+            error!("Failed to save message: {} (full: {:?})", e, e);
+            let is_dev = std::env::var("PORT").unwrap_or_else(|_| "3001".into()) != "8080";
+            let body = if is_dev {
+                serde_json::json!({
+                    "message": "Server error: 500",
+                    "detail": format!("{}", e)
+                })
+            } else {
+                serde_json::json!({ "message": "Server error: 500" })
+            };
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
+        }
     }
-    
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "message": "Message received successfully"
-    })))
 }
 
 // The "Tricky" Dashboard Handler

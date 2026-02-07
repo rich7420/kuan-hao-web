@@ -67,10 +67,10 @@ docker-compose up -d
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env if needed
+# Edit .env if needed (DATABASE_URL must point to a running Postgres)
 cargo run
 ```
-Backend will run on `http://localhost:3001`
+Backend will run on `http://localhost:3001`. You can also run from repo root: `cargo run -p backend`; migrations are auto-detected from `./migrations` or `./backend/migrations`.
 
 4. **Frontend Setup**
 ```bash
