@@ -1,5 +1,5 @@
-# Base stage
-FROM rust:1.84-slim-bookworm as chef
+# Base stage (use latest Rust; pin was 1.84, too old for edition2024)
+FROM rust:slim-bookworm as chef
 WORKDIR /app
 RUN cargo install cargo-chef --locked
 
