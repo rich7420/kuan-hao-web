@@ -59,10 +59,8 @@ async fn main() {
     // Initialize state
     let state = AppState { db: pool };
 
-    // Configure CORS based on environment
-    let frontend_origin = env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    
-    // Include OPTIONS so browser preflight gets valid CORS response
+    // Configure CORS: on Cloud Run (PORT=8080) allow any origin so frontend can connect; locally use FRONTEND_URL
+    let port_for_cors = env::var("PORT").unwrap_or_else(|_| "3001".to_string());
     let allowed_methods = [
         axum::http::Method::GET,
         axum::http::Method::POST,
@@ -73,18 +71,26 @@ async fn main() {
         axum::http::HeaderName::from_static("x-magic-key"),
     ];
 
-    // Parse CORS origin - if parsing fails, allow any for development
-    let cors = if let Ok(origin) = frontend_origin.parse::<axum::http::HeaderValue>() {
-        CorsLayer::new()
-            .allow_origin(origin)
-            .allow_methods(allowed_methods)
-            .allow_headers(allowed_headers.clone())
-    } else {
-        info!("Using permissive CORS for development");
+    let cors = if port_for_cors == "8080" {
+        info!("CORS: allowing any origin (Cloud Run)");
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods(allowed_methods)
-            .allow_headers(allowed_headers)
+            .allow_headers(allowed_headers.clone())
+    } else {
+        let frontend_origin = env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+        if let Ok(origin) = frontend_origin.parse::<axum::http::HeaderValue>() {
+            CorsLayer::new()
+                .allow_origin(origin)
+                .allow_methods(allowed_methods)
+                .allow_headers(allowed_headers.clone())
+        } else {
+            info!("CORS: using permissive for development");
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(allowed_methods)
+                .allow_headers(allowed_headers)
+        }
     };
 
     // DDoS Protection: Rate limiting per IP
