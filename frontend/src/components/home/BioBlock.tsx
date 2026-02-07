@@ -1,9 +1,13 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import Link from 'next/link';
+import { Github, Linkedin } from 'lucide-react';
 
 import MotionCard from '../ui/MotionCard';
+
+const GITHUB_URL = 'https://github.com/rich7420';
+const LINKEDIN_URL = 'https://www.linkedin.com/in/kuan-hao-h/';
 
 export default function BioBlock() {
     return (
@@ -18,6 +22,26 @@ export default function BioBlock() {
                 <p className="text-gray-600 dark:text-gray-400 group-hover:text-gray-200 dark:group-hover:text-gray-100 text-lg leading-relaxed relative z-10 transition-colors duration-300">
                     I&apos;m an Apache Mahout Committer and open-source enthusiast specializing in AI Infrastructure and Distributed Systems. My passion lies in building scalable, high-performance tools for the cloud-native ecosystem. Currently conducting research and actively preparing for my PhD application.
                 </p>
+                <div className="flex items-center gap-4 mt-4 relative z-10">
+                    <Link
+                        href={GITHUB_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gray-500 hover:text-cyan-400 dark:text-gray-400 dark:hover:text-cyan-400 transition-colors"
+                        aria-label="GitHub"
+                    >
+                        <Github className="w-6 h-6" />
+                    </Link>
+                    <Link
+                        href={LINKEDIN_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gray-500 hover:text-cyan-400 dark:text-gray-400 dark:hover:text-cyan-400 transition-colors"
+                        aria-label="LinkedIn"
+                    >
+                        <Linkedin className="w-6 h-6" />
+                    </Link>
+                </div>
             </div>
         </MotionCard>
     );
