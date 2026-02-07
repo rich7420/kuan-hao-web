@@ -13,9 +13,11 @@ export async function sendContactForm(data: { name: string; email: string; messa
     });
 
     if (!response.ok) {
-        // Try to parse error message from backend
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Server error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({})) as { message?: string; detail?: string };
+        const msg = errorData.detail
+            ? `${errorData.message ?? "Server error"}: ${errorData.detail}`
+            : (errorData.message || `Server error: ${response.status}`);
+        throw new Error(msg);
     }
 
     return response.json();

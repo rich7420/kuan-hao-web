@@ -7,13 +7,15 @@ use axum::{
     Router,
 };
 
+use sqlx::migrate::Migrator;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::GlobalKeyExtractor};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -50,11 +52,19 @@ async fn main() {
         .await
         .expect("Failed to connect to Postgres.");
 
-    // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
+    // Run migrations from crate dir (works no matter which cwd you run from)
+    let migrations_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    info!("Running migrations from {:?}", migrations_path);
+    let migrator = Migrator::new(migrations_path)
         .await
-        .expect("Failed to migrate database");
+        .expect("Failed to load migrations");
+    migrator.run(&pool).await.expect("Failed to migrate database");
+
+    // Verify messages table exists (fail fast with clear error if not)
+    if let Err(e) = sqlx::query("SELECT 1 FROM messages LIMIT 0").fetch_optional(&pool).await {
+        panic!("messages table missing or DB error: {}. Run migrations or add migration to create messages.", e);
+    }
+    info!("Database OK: messages table present");
 
     // Initialize state
     let state = AppState { db: pool };
@@ -93,13 +103,13 @@ async fn main() {
         }
     };
 
-    // DDoS Protection: Rate limiting per IP
+    // DDoS Protection: Rate limiting (global so we never 500 from "Unable To Extract Key" when peer IP is missing)
     // Allow 20 requests burst, then 1 request per second
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(1) 
-            .burst_size(20) 
-            .key_extractor(PeerIpKeyExtractor)
+            .per_second(1)
+            .burst_size(20)
+            .key_extractor(GlobalKeyExtractor)
             .finish()
             .expect("Failed to create rate limiter config")
     );
@@ -136,7 +146,8 @@ async fn main() {
         .layer(cors);
 
     info!("Server running on {}", addr);
-    axum::serve(listener, app)
+    // Inject ConnectInfo<SocketAddr> so GovernorLayer's PeerIpKeyExtractor can get peer IP (avoids "Unable To Extract Key!" 500)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("Server error");
