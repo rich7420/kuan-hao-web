@@ -112,7 +112,7 @@ jobs:
         run: |
           IMAGE_TAG="$ARTIFACT_REGISTRY/$PROJECT_ID/my-repo/$BACKEND_SERVICE:${{ github.sha }}"
           CONN_NAME="$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE"
-          DB_URL="postgres://$DB_USER:${{ secrets.CLOUD_SQL_PASSWORD }}@localhost/$DB_NAME?host=/cloudsql/$CONN_NAME"
+          DB_URL="postgres://$DB_USER:${{ secrets.CLOUD_SQL_PASSWORD }}@/$DB_NAME?host=/cloudsql/$CONN_NAME"
 
           echo "Deploying to Cloud Run with connection: $CONN_NAME"
 
