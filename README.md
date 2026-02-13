@@ -96,7 +96,7 @@ Frontend will run on `http://localhost:3000`
 1. **Setup GCP Project**
    - Create a new GCP project
    - Enable Cloud Run API
-   - Create Cloud SQL PostgreSQL instance
+   - Create Cloud SQL PostgreSQL instance (workflow uses **db-f1-micro** for ~\$0.30/day; target &lt;\$1/day)
    - Create Service Account with necessary permissions
 
 2. **Configure GitHub Secrets**

@@ -67,6 +67,20 @@ jobs:
             echo "Instance $CLOUD_SQL_INSTANCE already exists."
           fi
 
+      # 確保使用最小規格 db-f1-micro（約 $0.3/天），避免超出預算（目標約 $1/天）
+      - name: Ensure Cloud SQL tier is db-f1-micro (cost optimization)
+        run: |
+          CURRENT_TIER=$(gcloud sql instances describe $CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format='value(settings.tier)' 2>/dev/null || echo "")
+          if [ -n "$CURRENT_TIER" ] && [ "$CURRENT_TIER" != "db-f1-micro" ]; then
+            echo "Resizing instance from $CURRENT_TIER to db-f1-micro (may restart briefly)..."
+            gcloud sql instances patch $CLOUD_SQL_INSTANCE \
+              --project=$PROJECT_ID \
+              --tier=db-f1-micro \
+              --quiet
+          else
+            echo "Instance tier is already db-f1-micro."
+          fi
+
       - name: Create database if not exists
         run: |
           if ! gcloud sql databases list --instance=$CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format="value(name)" | grep -q "^${DB_NAME}$"; then
