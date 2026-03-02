@@ -34,7 +34,7 @@ async fn main() {
 
     // Load environment variables
     dotenvy::dotenv().ok();
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_url = env::var("DATABASE_URL").ok();
 
     // Bind to port first so Cloud Run's startup probe sees the port open (avoids "failed to start and listen on PORT=8080")
     let port = env::var("PORT").unwrap_or_else(|_| "3001".to_string());
@@ -44,27 +44,30 @@ async fn main() {
         .expect(&format!("Failed to bind to {}", addr));
     info!("Listening on {}", addr);
 
-    // Connect to PostgreSQL (can be slow on first connection; port is already open for health checks)
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(15))
-        .connect(&db_url)
-        .await
-        .expect("Failed to connect to Postgres.");
-
-    // Run migrations from crate dir (works no matter which cwd you run from)
-    let migrations_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
-    info!("Running migrations from {:?}", migrations_path);
-    let migrator = Migrator::new(migrations_path)
-        .await
-        .expect("Failed to load migrations");
-    migrator.run(&pool).await.expect("Failed to migrate database");
-
-    // Verify messages table exists (fail fast with clear error if not)
-    if let Err(e) = sqlx::query("SELECT 1 FROM messages LIMIT 0").fetch_optional(&pool).await {
-        panic!("messages table missing or DB error: {}. Run migrations or add migration to create messages.", e);
-    }
-    info!("Database OK: messages table present");
+    // Connect to PostgreSQL when DATABASE_URL is set (optional — omit to run without Cloud SQL)
+    let pool = if let Some(ref url) = db_url {
+        let p = PgPoolOptions::new()
+            .max_connections(5)
+            .acquire_timeout(Duration::from_secs(15))
+            .connect(url)
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Run migrations from crate dir (works no matter which cwd you run from)
+        let migrations_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        info!("Running migrations from {:?}", migrations_path);
+        let migrator = Migrator::new(migrations_path)
+            .await
+            .expect("Failed to load migrations");
+        migrator.run(&p).await.expect("Failed to migrate database");
+        if let Err(e) = sqlx::query("SELECT 1 FROM messages LIMIT 0").fetch_optional(&p).await {
+            panic!("messages table missing or DB error: {}. Run migrations or add migration to create messages.", e);
+        }
+        info!("Database OK: messages table present");
+        Some(p)
+    } else {
+        info!("DATABASE_URL not set — running without database (contact/dashboard will be limited)");
+        None
+    };
 
     // Initialize state
     let state = AppState { db: pool };

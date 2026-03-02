@@ -4,10 +4,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use validator::Validate;
 
-// Shared application state
+// Shared application state (db is None when DATABASE_URL not set — Cloud SQL disabled)
 #[derive(Clone)]
 pub struct AppState {
-    pub db: PgPool,
+    pub db: Option<PgPool>,
 }
 
 #[derive(Serialize, Clone, Debug, sqlx::FromRow)]

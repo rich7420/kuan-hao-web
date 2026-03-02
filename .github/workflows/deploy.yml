@@ -9,9 +9,10 @@ env:
   REGION: asia-east1
   BACKEND_SERVICE: backend-service
   FRONTEND_SERVICE: frontend-service
-  CLOUD_SQL_INSTANCE: kuan-hao-db
-  DB_NAME: kuan_hao_web
-  DB_USER: postgres
+  # --- Cloud SQL (commented out to reduce cost; uncomment to re-enable) ---
+  # CLOUD_SQL_INSTANCE: kuan-hao-db
+  # DB_NAME: kuan_hao_web
+  # DB_USER: postgres
   # Artifact Registry host for the region (replaces gcr.io)
   ARTIFACT_REGISTRY: asia-east1-docker.pkg.dev
 
@@ -34,7 +35,8 @@ jobs:
 
       - name: Enable APIs
         run: |
-          gcloud services enable sqladmin.googleapis.com run.googleapis.com artifactregistry.googleapis.com --project=$PROJECT_ID --quiet
+          # sqladmin.googleapis.com omitted when Cloud SQL is disabled
+          gcloud services enable run.googleapis.com artifactregistry.googleapis.com --project=$PROJECT_ID --quiet
 
       - name: Create Artifact Registry Repo
         run: |
@@ -50,50 +52,53 @@ jobs:
             echo "Artifact Registry repository already exists."
           fi
 
-      - name: Create Cloud SQL instance if not exists
-        env:
-          ROOT_PASSWORD: ${{ secrets.CLOUD_SQL_PASSWORD }}
-        run: |
-          if ! gcloud sql instances describe $CLOUD_SQL_INSTANCE --project=$PROJECT_ID &>/dev/null; then
-            echo "Creating Cloud SQL instance..."
-            gcloud sql instances create $CLOUD_SQL_INSTANCE \
-              --project=$PROJECT_ID \
-              --database-version=POSTGRES_15 \
-              --tier=db-f1-micro \
-              --region=$REGION \
-              --root-password="$ROOT_PASSWORD" \
-              --quiet
-          else
-            echo "Instance $CLOUD_SQL_INSTANCE already exists."
-          fi
-
-      # 確保使用最小規格 db-f1-micro（約 $0.3/天），避免超出預算（目標約 $1/天）
-      - name: Ensure Cloud SQL tier is db-f1-micro (cost optimization)
-        run: |
-          CURRENT_TIER=$(gcloud sql instances describe $CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format='value(settings.tier)' 2>/dev/null || echo "")
-          if [ -n "$CURRENT_TIER" ] && [ "$CURRENT_TIER" != "db-f1-micro" ]; then
-            echo "Resizing instance from $CURRENT_TIER to db-f1-micro (may restart briefly)..."
-            gcloud sql instances patch $CLOUD_SQL_INSTANCE \
-              --project=$PROJECT_ID \
-              --tier=db-f1-micro \
-              --quiet
-          else
-            echo "Instance tier is already db-f1-micro."
-          fi
-
-      - name: Create database if not exists
-        run: |
-          if ! gcloud sql databases list --instance=$CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format="value(name)" | grep -q "^${DB_NAME}$"; then
-            echo "Creating database $DB_NAME..."
-            gcloud sql databases create $DB_NAME --instance=$CLOUD_SQL_INSTANCE --project=$PROJECT_ID --quiet
-          else
-            echo "Database $DB_NAME already exists."
-          fi
-
-      - name: Set connection name
+      # --- Cloud SQL setup (commented out to reduce cost; uncomment env + steps to re-enable) ---
+      # - name: Create Cloud SQL instance if not exists
+      #   env:
+      #     ROOT_PASSWORD: ${{ secrets.CLOUD_SQL_PASSWORD }}
+      #   run: |
+      #     if ! gcloud sql instances describe $CLOUD_SQL_INSTANCE --project=$PROJECT_ID &>/dev/null; then
+      #       echo "Creating Cloud SQL instance..."
+      #       gcloud sql instances create $CLOUD_SQL_INSTANCE \
+      #         --project=$PROJECT_ID \
+      #         --database-version=POSTGRES_15 \
+      #         --tier=db-f1-micro \
+      #         --region=$REGION \
+      #         --root-password="$ROOT_PASSWORD" \
+      #         --quiet
+      #     else
+      #       echo "Instance $CLOUD_SQL_INSTANCE already exists."
+      #     fi
+      #
+      # - name: Ensure Cloud SQL tier is db-f1-micro (cost optimization)
+      #   run: |
+      #     CURRENT_TIER=$(gcloud sql instances describe $CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format='value(settings.tier)' 2>/dev/null || echo "")
+      #     if [ -n "$CURRENT_TIER" ] && [ "$CURRENT_TIER" != "db-f1-micro" ]; then
+      #       echo "Resizing instance from $CURRENT_TIER to db-f1-micro (may restart briefly)..."
+      #       gcloud sql instances patch $CLOUD_SQL_INSTANCE \
+      #         --project=$PROJECT_ID \
+      #         --tier=db-f1-micro \
+      #         --quiet
+      #     else
+      #       echo "Instance tier is already db-f1-micro."
+      #     fi
+      #
+      # - name: Create database if not exists
+      #   run: |
+      #     if ! gcloud sql databases list --instance=$CLOUD_SQL_INSTANCE --project=$PROJECT_ID --format="value(name)" | grep -q "^${DB_NAME}$"; then
+      #       echo "Creating database $DB_NAME..."
+      #       gcloud sql databases create $DB_NAME --instance=$CLOUD_SQL_INSTANCE --project=$PROJECT_ID --quiet
+      #     else
+      #       echo "Database $DB_NAME already exists."
+      #     fi
+      #
+      # - name: Set connection name
+      #   id: connection
+      #   run: |
+      #     echo "connection_name=$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE" >> "$GITHUB_OUTPUT"
+      - name: Set connection name (dummy when Cloud SQL disabled)
         id: connection
-        run: |
-          echo "connection_name=$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE" >> "$GITHUB_OUTPUT"
+        run: echo "connection_name=" >> "$GITHUB_OUTPUT"
 
   deploy-backend:
     needs: setup-environment
@@ -125,19 +130,19 @@ jobs:
       - name: Deploy Backend
         run: |
           IMAGE_TAG="$ARTIFACT_REGISTRY/$PROJECT_ID/my-repo/$BACKEND_SERVICE:${{ github.sha }}"
-          CONN_NAME="$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE"
-          DB_URL="postgres://$DB_USER:${{ secrets.CLOUD_SQL_PASSWORD }}@localhost/$DB_NAME?host=/cloudsql/$CONN_NAME"
-
-          echo "Deploying to Cloud Run with connection: $CONN_NAME"
+          # Cloud SQL disabled (uncomment to re-enable):
+          # CONN_NAME="$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE"
+          # DB_URL="postgres://$DB_USER:${{ secrets.CLOUD_SQL_PASSWORD }}@localhost/$DB_NAME?host=/cloudsql/$CONN_NAME"
+          # echo "Deploying to Cloud Run with connection: $CONN_NAME"
 
           gcloud run deploy $BACKEND_SERVICE \
             --image $IMAGE_TAG \
             --region $REGION \
             --platform managed \
             --allow-unauthenticated \
-            --add-cloudsql-instances $CONN_NAME \
-            --set-env-vars "DATABASE_URL=$DB_URL,RUST_LOG=info" \
+            --set-env-vars "RUST_LOG=info" \
             --startup-probe=tcpSocket.port=8080,initialDelaySeconds=30,failureThreshold=6,timeoutSeconds=5,periodSeconds=10
+          # Re-enable Cloud SQL: add above --add-cloudsql-instances $CONN_NAME and set DATABASE_URL in --set-env-vars
 
       - name: Get Backend URL
         id: backend-url

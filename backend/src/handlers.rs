@@ -10,25 +10,24 @@ use crate::state::{AppState, MessageLog, DashboardData, ContactPayload};
 use sqlx::{query, query_as};
 use validator::Validate;
 
-// Middleware to track visitor count
+// Middleware to track visitor count (no-op when DB disabled)
 pub async fn track_visitor(
     State(state): State<AppState>,
     request: Request,
     next: Next,
 ) -> Response {
-    // Increment count for non-OPTIONS requests
     if request.method() != "OPTIONS" {
-        // Asynchronously update DB
-        let db = state.db.clone();
-        tokio::spawn(async move {
-            match query("UPDATE visitors SET count = count + 1 WHERE id = 1")
-                .execute(&db)
-                .await 
-            {
-                Ok(_) => info!("Visitor count updated"),
-                Err(e) => error!("Failed to update visitor count: {}", e),
-            }
-        });
+        if let Some(db) = state.db.clone() {
+            tokio::spawn(async move {
+                match query("UPDATE visitors SET count = count + 1 WHERE id = 1")
+                    .execute(&db)
+                    .await
+                {
+                    Ok(_) => info!("Visitor count updated"),
+                    Err(e) => error!("Failed to update visitor count: {}", e),
+                }
+            });
+        }
     }
     next.run(request).await
 }
@@ -55,12 +54,22 @@ pub async fn contact_handler(
 
     info!("Received contact form submission: {:?}", payload);
 
+    let db = match &state.db {
+        Some(pool) => pool,
+        None => {
+            info!("Contact: database disabled, returning 503");
+            return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+                "message": "Database unavailable (contact form disabled)"
+            }))).into_response();
+        }
+    };
+
     // Store message in Postgres
     match query("INSERT INTO messages (name, email, message) VALUES ($1, $2, $3)")
         .bind(&payload.name)
         .bind(&payload.email)
         .bind(&payload.message)
-        .execute(&state.db)
+        .execute(db)
         .await
     {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({
@@ -99,38 +108,42 @@ pub async fn dashboard_handler(
         .unwrap_or(false);
 
     if key_ok {
-            info!("Dashboard: key valid, querying DB");
-            // Fetch visitor count - resilient if row missing (e.g. fresh DB)
-            #[derive(sqlx::FromRow)]
-            struct CountRow { count: i64 }
-
-            let visitor_count = match query_as::<_, CountRow>("SELECT count FROM visitors WHERE id = 1")
-                .fetch_optional(&state.db)
-                .await
-            {
-                Ok(Some(r)) => r.count,
-                Ok(None) => 0,
-                Err(e) => {
-                    error!("DB error (visitors): {} - using 0", e);
-                    0
+            let (visitor_count, recent_messages) = match &state.db {
+                Some(db) => {
+                    info!("Dashboard: key valid, querying DB");
+                    #[derive(sqlx::FromRow)]
+                    struct CountRow { count: i64 }
+                    let visitor_count = match query_as::<_, CountRow>("SELECT count FROM visitors WHERE id = 1")
+                        .fetch_optional(db)
+                        .await
+                    {
+                        Ok(Some(r)) => r.count,
+                        Ok(None) => 0,
+                        Err(e) => {
+                            error!("DB error (visitors): {} - using 0", e);
+                            0
+                        }
+                    };
+                    let recent_messages = match query_as::<_, MessageLog>(
+                        "SELECT id, name, email, message, created_at FROM messages ORDER BY created_at DESC LIMIT 50"
+                    )
+                    .fetch_all(db)
+                    .await
+                    {
+                        Ok(rows) => rows,
+                        Err(e) => {
+                            error!("DB error (messages): {} - returning empty list", e);
+                            vec![]
+                        }
+                    };
+                    info!("Dashboard: returning 200 OK (visitors={}, messages={})", visitor_count, recent_messages.len());
+                    (visitor_count, recent_messages)
+                }
+                None => {
+                    info!("Dashboard: database disabled, returning empty data");
+                    (0, vec![])
                 }
             };
-
-            // Fetch recent messages (resilient: return empty on error so dashboard still loads)
-            let recent_messages = match query_as::<_, MessageLog>(
-                "SELECT id, name, email, message, created_at FROM messages ORDER BY created_at DESC LIMIT 50"
-            )
-            .fetch_all(&state.db)
-            .await
-            {
-                Ok(rows) => rows,
-                Err(e) => {
-                    error!("DB error (messages): {} - returning empty list", e);
-                    vec![]
-                }
-            };
-
-            info!("Dashboard: returning 200 OK (visitors={}, messages={})", visitor_count, recent_messages.len());
             Ok(Json(DashboardData {
                 visitor_count,
                 recent_messages,
